@@ -1,0 +1,43 @@
+# Generating Admixture plot
+# María Lucena Pérez
+## Plotting admix results
+
+
+# Admix_plot.R
+```{r}
+library(RColorBrewer)
+library (dplyr)
+args <- commandArgs(TRUE)
+print(args)
+admix<-t(as.matrix(read.table(args[1])))
+pop<-read.table(args[2],as.is=T)
+
+names(pop) <- c("pop", "ind")
+pop$pop <- as.factor (pop$pop)
+pop$pop <- factor (pop$pop, levels=c("c_lp_do_n012", "c_lp_sm_n018", "a_lp_ib_n003"))
+
+admix<-admix[,order(pop[,1])]
+pop<-pop[order(pop[,1]),]
+n <- args[3]
+twelve_col_pals = brewer.pal.info[brewer.pal.info$maxcolors == '12',] 
+col_vector = unlist(mapply(brewer.pal, twelve_col_pals$maxcolors, rownames(twelve_col_pals)))
+pie(rep(1,n), col=sample(col_vector, n))
+
+pdf(paste0(args[4],"_K",args[3],".pdf"), height=10, width = 30)
+barplot(admix,col=col_vector,space=0,xlab="Individuals",ylab="Admixture")
+text(tapply(1:nrow(pop),pop[,1],mean),-0.1,unique(pop[,1]),xpd=T,srt=60)
+dev.off()
+```
+
+# Loop to send Admix_plot.R
+
+```{bash}
+for run in `seq 1 5`;
+do
+for i in `seq 1 5`;
+do
+echo $i
+Rscript Admix_plot.R "$POP"_K"$i"_run$run.qopt "$POP".info $i $POP"_run"$run
+done
+done
+```
