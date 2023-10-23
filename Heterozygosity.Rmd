@@ -1,0 +1,67 @@
+# Plot heterozygosity individual values in R 
+# María Lucena Pérez
+
+### Load library & wd
+```{r}
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+theme_set(theme_minimal())
+wd <- "introduce working directory"
+```
+### Load data
+```{r}
+# Heterozygosity data
+my_files_unfolded = list.files(path = wd, pattern="*sfs$")    
+for (i in 1:length(my_files_unfolded)) 
+  { assign(my_files_unfolded[i], (scan(paste(wd,my_files_unfolded[i], sep = ""), sep = " ", dec = ".")) %>% .[!is.na(.)])}
+
+datalist = list()
+for (i in 1:length (my_files_unfolded))
+  {
+  individual <- strsplit(my_files_unfolded[i], ".", fixed=T)[[1]][1]
+  pop <- strsplit(individual, "_", fixed=T)[[1]][3]
+  epoch <- strsplit(individual, "_", fixed=T)[[1]][1]
+  SFS=(eval(parse(text=my_files_unfolded[i])))
+  # Calculate heterozygosity
+  heterozygosity <- SFS[2]/sum(SFS)
+  dat <- as.data.frame(cbind(individual, epoch, pop, heterozygosity))
+  datalist[[i]] <- dat # add it to your list
+}
+
+heterozygosity_all_ind <- do.call(rbind, datalist) %>% 
+  mutate (POPULATION = ifelse (epoch=="c" & pop=="sm", "Andujar", 
+                               ifelse (epoch=="c" & pop=="do", "Doñana",
+                                       "Ancient"))) %>% 
+  mutate (heterozygosity=as.numeric(as.character(heterozygosity))) %>% 
+  mutate (ind2=substr(individual, 1,12))
+
+```
+
+## Cov
+```{r}
+# Ahora voy a cargar los datos de cobertura para hacer unas comprobaciones
+cov <- read.table("contemporary_subsample_coverage.csv", header = T, sep = ";", dec = ",") 
+cov_het_all_ind <- full_join(heterozygosity_all_ind, cov, by=c("ind2"="sample_name"))
+
+```
+
+### Plot
+```{r}
+
+# Plot heterozygosity
+ggplot (heterozygosity_all_ind, aes(ind2, heterozygosity))+
+geom_point() +
+facet_wrap(~ POPULATION, scales ="free_x", ncol=3) +
+ theme(axis.title.x=element_blank(),
+       axis.text.x = element_text(angle = 90),
+       axis.ticks.x = element_blank())
+ggsave(paste0(wd, "heterozygosity_all_ind_aln.pdf"), width = 5, height =5 )
+
+# Plot coverage
+ggplot (cov_het_all_ind, aes(coverage_based_samtools, heterozygosity, colour=POPULATION))+
+geom_point() +
+geom_smooth(method = lm) +
+ggsave(paste0(wd, "cov_het_all_ind.pdf"), width = 5, height = 5)
+
+```
