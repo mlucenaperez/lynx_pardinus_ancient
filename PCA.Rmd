@@ -1,0 +1,313 @@
+# Population Structure (PCA, MDS(ngsDist))
+María Lucena Pérez
+
+Code to plot PCA data using a Procustes analysis.
+
+## R representation
+
+### Load data
+
+```{r "setup", include=FALSE}
+library (optparse)
+library (methods)
+library (optparse)
+library (ggplot2)
+library (dplyr)
+library (threejs)
+library (RColorBrewer)
+library ("knitr")
+library (MCMCpack)
+
+WORKING_DIR="Select your working directory"
+
+# Read input file
+covar_a_lp_al <- read.table(paste(WORKING_DIR,"a_lp_al-c_lp_do-c_lp_sm_n031.covar", sep=''), stringsAsFact=F);
+covar_a_lp_ca <- read.table(paste(WORKING_DIR,"a_lp_ca-c_lp_do-c_lp_sm_n031.covar", sep=''), stringsAsFact=F);
+covar_a_lp_sm <- read.table(paste(WORKING_DIR,"a_lp_sm-c_lp_do-c_lp_sm_n031.covar", sep=''), stringsAsFact=F);
+covar_only_contemp <- read.table(paste(WORKING_DIR,"c_lp_do-c_lp_sm_n030.covar", sep=''), stringsAsFact=F);
+
+# Read annot file
+annot_a_lp_al <- read.table(paste(WORKING_DIR,"a_lp_al-c_lp_do-c_lp_sm_n031.ALL.clst", sep=""), header=TRUE) 
+annot_a_lp_ca  <- read.table(paste(WORKING_DIR,"a_lp_ca-c_lp_do-c_lp_sm_n031.ALL.clst", sep=""), header=TRUE) 
+annot_a_lp_sm <- read.table(paste(WORKING_DIR,"a_lp_sm-c_lp_do-c_lp_sm_n031.ALL.clst", sep=""), header=TRUE) 
+annot_only_contemp <- read.table(paste(WORKING_DIR,"c_lp_do-c_lp_sm_n030.ALL.clst", sep=""), header=TRUE) 
+
+# Parse components to analyze
+# comp <- as.numeric(strsplit("component1-component2", "-", fixed=TRUE)[[1]])
+# comp <- as.numeric(strsplit(opt$comp, "-", fixed=TRUE)[[1]])
+
+# comp <- c(1,2)
+# comp <- c(2,3)
+# comp <- c(1,3)
+
+# Eigenvalues
+
+eig_a_lp_al <- eigen(covar_a_lp_al, symm=TRUE)
+eig_a_lp_al$val <- eig_a_lp_al$val/sum(eig_a_lp_al$val)
+
+eig_a_lp_ca <- eigen(covar_a_lp_ca, symm=TRUE)
+eig_a_lp_ca$val <- eig_a_lp_ca$val/sum(eig_a_lp_ca$val)
+
+eig_a_lp_sm <- eigen(covar_a_lp_sm, symm=TRUE)
+eig_a_lp_sm$val <- eig_a_lp_sm$val/sum(eig_a_lp_sm$val)
+
+eig_only_contemp <- eigen(covar_only_contemp, symm=TRUE)
+eig_only_contemp$val <- eig_only_contemp$val/sum(eig_only_contemp$val)
+
+# cat(signif(eig$val, digits=3)*100,"\n");
+# eig$values
+
+# Plot
+PC_a_lp_al <- as.data.frame(eig_a_lp_al$vectors)
+colnames(PC_a_lp_al) <- gsub("V", "PC", colnames(PC_a_lp_al))
+PC_a_lp_al$Pop <- factor(annot_a_lp_al$CLUSTER)
+PC_a_lp_al$Ind <- factor(annot_a_lp_al$IID)
+
+PC_a_lp_ca <- as.data.frame(eig_a_lp_ca$vectors)
+colnames(PC_a_lp_ca) <- gsub("V", "PC", colnames(PC_a_lp_ca))
+PC_a_lp_ca$Pop <- factor(annot_a_lp_ca$CLUSTER)
+PC_a_lp_ca$Ind <- factor(annot_a_lp_ca$IID)
+
+PC_a_lp_sm <- as.data.frame(eig_a_lp_sm$vectors)
+colnames(PC_a_lp_sm) <- gsub("V", "PC", colnames(PC_a_lp_sm))
+PC_a_lp_sm$Pop <- factor(annot_a_lp_sm$CLUSTER)
+PC_a_lp_sm$Ind <- factor(annot_a_lp_sm$IID)
+
+PC_only_contemp <- as.data.frame(eig_only_contemp$vectors)
+colnames(PC_only_contemp) <- gsub("V", "PC", colnames(PC_only_contemp))
+PC_only_contemp$Pop <- factor(annot_only_contemp$CLUSTER)
+PC_only_contemp$Ind <- factor(annot_only_contemp$IID)
+
+PC_a_lp_al <- PC_a_lp_al %>% 
+  mutate (., Populations =  
+            ifelse (Pop == "a_lp_al", "Ancient_Algarve",
+                    ifelse (Pop == "a_lp_ca", "Ancient_Catalonia",
+                            ifelse (Pop == "a_lp_sm", "Ancient_Andujar",
+                                    ifelse (Pop == "c_lp_sm", "Andujar",
+                                            ifelse (Pop == "c_lp_do", "Doñana", NA)))))) %>% 
+  mutate (., color = ifelse (Populations == "Ancient_Algarve", "#981D69", 
+                             ifelse (Populations == "Ancient_Catalonia", "#43006A", 
+                                     ifelse (Populations == "Ancient_Andujar", "#FBA368", 
+                                             ifelse (Populations == "Andujar", "#5DC863FF",
+                                                     ifelse (Populations == "Doñana", "#FDE725FF", NA)))))) 
+
+PC_a_lp_ca <- PC_a_lp_ca %>% 
+  mutate (., Populations =  
+            ifelse (Pop == "a_lp_al", "Ancient_Algarve",
+                    ifelse (Pop == "a_lp_ca", "Ancient_Catalonia",
+                            ifelse (Pop == "a_lp_sm", "Ancient_Andujar",
+                                    ifelse (Pop == "c_lp_sm", "Andujar",
+                                            ifelse (Pop == "c_lp_do", "Doñana", NA)))))) %>% 
+  mutate (., color = ifelse (Populations == "Ancient_Algarve", "#981D69", 
+                             ifelse (Populations == "Ancient_Catalonia", "#43006A", 
+                                     ifelse (Populations == "Ancient_Andujar", "#FBA368", 
+                                             ifelse (Populations == "Andujar", "#5DC863FF",
+                                                     ifelse (Populations == "Doñana", "#FDE725FF", NA)))))) 
+
+PC_a_lp_sm <- PC_a_lp_sm %>% 
+  mutate (., Populations =  
+            ifelse (Pop == "a_lp_al", "Ancient_Algarve",
+                    ifelse (Pop == "a_lp_ca", "Ancient_Catalonia",
+                            ifelse (Pop == "a_lp_sm", "Ancient_Andujar",
+                                    ifelse (Pop == "c_lp_sm", "Andujar",
+                                            ifelse (Pop == "c_lp_do", "Doñana", NA)))))) %>% 
+  mutate (., color = ifelse (Populations == "Ancient_Algarve", "#981D69", 
+                             ifelse (Populations == "Ancient_Catalonia", "#43006A", 
+                                     ifelse (Populations == "Ancient_Andujar", "#FBA368", 
+                                             ifelse (Populations == "Andujar", "#5DC863FF",
+                                                     ifelse (Populations == "Doñana", "#FDE725FF", NA)))))) 
+
+PC_only_contemp <- PC_only_contemp %>% 
+  mutate (., Populations =  
+            ifelse (Pop == "a_lp_al", "Ancient_Algarve",
+                    ifelse (Pop == "a_lp_ca", "Ancient_Catalonia",
+                            ifelse (Pop == "a_lp_sm", "Ancient_Andujar",
+                                    ifelse (Pop == "c_lp_sm", "Andujar",
+                                            ifelse (Pop == "c_lp_do", "Doñana", NA)))))) %>% 
+  mutate (., color = ifelse (Populations == "Ancient_Algarve", "#981D69", 
+                             ifelse (Populations == "Ancient_Catalonia", "#43006A", 
+                                     ifelse (Populations == "Ancient_Andujar", "#FBA368", 
+                                             ifelse (Populations == "Andujar", "#5DC863FF",
+                                                     ifelse (Populations == "Doñana", "#FDE725FF", NA)))))) 
+
+cols <- c("Ancient_Algarve"="#981D69", 
+          "Ancient_Catalonia"="#43006A", 
+          "Ancient_Andujar"="#FBA368", 
+          "Andujar"="#5DC863FF", 
+          "Doñana"="#FDE725FF")
+
+# PC$Populations <- factor (PC$Populations, levels=c("Ancient_Algarve", "Ancient_Catalonia", "Ancient_Andujar", "Andujar", "Doñana"))
+
+```
+
+## Basic plot of all PCA
+
+```{r}
+# Change when correspond!
+comp <- c(1,3)
+PC_used1 <- paste0("PC", comp[1])
+PC_used2 <- paste0("PC", comp[2])
+
+
+#PC_only_contemp
+pop="c_lp_do-c_lp_sm_n030"
+
+title <- paste("PC",comp[1]," (",signif(eig_only_contemp$val[comp[1]], digits=3)*100,"%)"," / PC",comp[2]," (",signif(eig_only_contemp$val[comp[2]], digits=3)*100,"%)",sep="",collapse="")
+
+x_axis = paste("PC",comp[1],sep="")
+# Para PC2
+#y_axis = paste("PC",comp[2],"*(-1)", sep="")
+# Para PC3
+y_axis = paste("PC",comp[2], sep="")
+
+# PC1-2
+ggplot() + 
+geom_point(data=PC_only_contemp, aes_string(x=x_axis, y=y_axis, color="Populations"), size = 5) + 
+scale_colour_manual(values = cols) + ggtitle(title) + theme_classic() 
+ggsave(paste(WORKING_DIR,pop, "_pca_pop_", PC_used1, "_", PC_used2, ".pdf", sep=""),units="mm",  width=270, height=190)
+
+#PC_a_lp_al
+pop="a_lp_al-c_lp_do-c_lp_sm_n031"
+title <- paste("PC",comp[1]," (",signif(eig_a_lp_al$val[comp[1]], digits=3)*100,"%)"," / PC",comp[2]," (",signif(eig_a_lp_al$val[comp[2]], digits=3)*100,"%)",sep="",collapse="")
+
+x_axis = paste("PC",comp[1],sep="")
+y_axis = paste("PC",comp[2],sep="")
+
+ggplot() + 
+geom_point(data=PC_a_lp_al, aes_string(x=x_axis, y=y_axis, color="Populations"), size = 5) + 
+scale_colour_manual(values = cols) + ggtitle(title) + theme_classic() 
+ggsave(paste(WORKING_DIR,pop, "_pca_pop_", PC_used1, "_", PC_used2, ".pdf", sep=""),units="mm",  width=270, height=190)
+
+
+#PC_a_lp_ca
+pop="a_lp_ca-c_lp_do-c_lp_sm_n031"
+title <- paste("PC",comp[1]," (",signif(eig_a_lp_ca$val[comp[1]], digits=3)*100,"%)"," / PC",comp[2]," (",signif(eig_a_lp_ca$val[comp[2]], digits=3)*100,"%)",sep="",collapse="")
+
+x_axis = paste("PC",comp[1],sep="")
+y_axis = paste("PC",comp[2],sep="")
+
+ggplot() + 
+geom_point(data=PC_a_lp_ca, aes_string(x=x_axis, y=y_axis, color="Populations"), size = 5) + 
+scale_colour_manual(values = cols) + ggtitle(title) + theme_classic() 
+ggsave(paste(WORKING_DIR,pop, "_pca_pop_", PC_used1, "_", PC_used2, ".pdf", sep=""),units="mm",  width=270, height=190)
+
+
+#PC_a_lp_sm
+pop="a_lp_sm-c_lp_do-c_lp_sm_n031"
+title <- paste("PC",comp[1]," (",signif(eig_a_lp_sm$val[comp[1]], digits=3)*100,"%)"," / PC",comp[2]," (",signif(eig_a_lp_sm$val[comp[2]], digits=3)*100,"%)",sep="",collapse="")
+
+x_axis = paste("PC",comp[1],sep="")
+y_axis = paste("PC",comp[2],sep="")
+
+ggplot() + 
+geom_point(data=PC_a_lp_sm, aes_string(x=x_axis, y=y_axis, color="Populations"), size = 5) + 
+scale_colour_manual(values = cols) + ggtitle(title) + theme_classic() 
+ggsave(paste(WORKING_DIR,pop, "_pca_pop_", PC_used1, "_", PC_used2, ".pdf", sep=""),units="mm",  width=270, height=190)
+
+
+```
+## Projection PC1 y PC2
+```{r}
+
+# Get PC1 y PC2 
+PC_a_lp_al_matrix<-as.matrix(cbind((PC_a_lp_al%>%filter(Pop!="a_lp_al"))$PC1, (PC_a_lp_al%>%filter(Pop!="a_lp_al"))$PC2))
+PC_a_lp_ca_matrix<-as.matrix(cbind((PC_a_lp_ca%>%filter(Pop!="a_lp_ca"))$PC1, (PC_a_lp_ca%>%filter(Pop!="a_lp_ca"))$PC2))
+PC_a_lp_sm_matrix<-as.matrix(cbind((PC_a_lp_sm%>%filter(Pop!="a_lp_sm"))$PC1, (PC_a_lp_sm%>%filter(Pop!="a_lp_sm"))$PC2))
+                             
+# Change axis
+PC_only_contemp_matrix<-as.matrix(cbind(PC_only_contemp$PC1,PC_only_contemp$PC2*(-1)))
+
+# Do procrustes analysis.
+p_a_lp_al <-procrustes(PC_a_lp_al_matrix,PC_only_contemp_matrix,translation=TRUE,dilation=TRUE)
+p_a_lp_ca <-procrustes(PC_a_lp_ca_matrix,PC_only_contemp_matrix,translation=TRUE,dilation=TRUE)
+p_a_lp_sm <-procrustes(PC_a_lp_sm_matrix,PC_only_contemp_matrix,translation=TRUE,dilation=TRUE)
+
+
+# Get the average of the transformed coordinates
+coordinates_x <- cbind (p_a_lp_al$X.new[,1], p_a_lp_ca$X.new[,1], p_a_lp_sm$X.new[,1]) %>% as.data.frame () %>% mutate(PC1=(V1+V2+V3)/3) %>% dplyr::select (PC1)
+coordinates_y <- cbind (p_a_lp_al$X.new[,2], p_a_lp_ca$X.new[,2], p_a_lp_sm$X.new[,2]) %>% as.data.frame () %>% mutate(PC2=(V1+V2+V3)/3) %>% dplyr::select (PC2)
+PC_avg <- cbind(coordinates_x, coordinates_y) %>% cbind (., dplyr::select(PC_only_contemp,Pop, Ind, Populations, color))
+
+  
+# Join of ancient data
+PC_a_lp_al_matrix_ancient <- PC_a_lp_al%>%filter(Pop=="a_lp_al") %>% dplyr::select (PC1,PC2, Pop, Ind, Populations, color)
+PC_a_lp_ca_matrix_ancient <- PC_a_lp_ca%>%filter(Pop=="a_lp_ca") %>% dplyr::select (PC1,PC2, Pop, Ind, Populations, color)
+PC_a_lp_sm_matrix_ancient <- PC_a_lp_sm%>%filter(Pop=="a_lp_sm") %>% dplyr::select (PC1,PC2, Pop, Ind, Populations, color)
+  
+# Cbind with all the infor for the plot.
+PCA_procrustes <- rbind (PC_avg, PC_a_lp_al_matrix_ancient, PC_a_lp_ca_matrix_ancient, PC_a_lp_sm_matrix_ancient)
+
+```
+
+### Plot 
+
+```{r}
+
+pop="a_lp_ib-c_lp_sm-c_lp_do_n033"
+comp <- c(1,2)
+title <- paste("PC",comp[1]," (",signif(eig_only_contemp$val[comp[1]], digits=3)*100,"%)"," / PC",comp[2]," (",signif(eig_only_contemp$val[comp[2]], digits=3)*100,"%)",sep="",collapse="")
+
+x_axis = paste("PC",comp[1],sep="")
+y_axis = paste("PC",comp[2],sep="")
+
+ggplot() + 
+geom_point(data=PCA_procrustes, aes_string(x=x_axis, y=y_axis, color="Populations"), size = 5) + 
+scale_colour_manual(values = cols) + ggtitle(title) + theme_classic() + theme(legend.position = "none")
+  
+ggsave(paste(WORKING_DIR,pop, "_pca_procrustes_PC1_PC2.pdf", sep=""),width=80, height=80, units="mm")
+ 
+```
+
+### Projection PC1 & PC3
+
+```{r}
+comp <- c(1,3)
+
+# Get PC1 y PC2
+PC_a_lp_al_matrix<-as.matrix(cbind((PC_a_lp_al%>%filter(Pop!="a_lp_al"))$PC1, (PC_a_lp_al%>%filter(Pop!="a_lp_al"))$PC3))
+PC_a_lp_ca_matrix<-as.matrix(cbind((PC_a_lp_ca%>%filter(Pop!="a_lp_ca"))$PC1, (PC_a_lp_ca%>%filter(Pop!="a_lp_ca"))$PC3))
+PC_a_lp_sm_matrix<-as.matrix(cbind((PC_a_lp_sm%>%filter(Pop!="a_lp_sm"))$PC1, (PC_a_lp_sm%>%filter(Pop!="a_lp_sm"))$PC3))
+                             
+PC_only_contemp_matrix<-as.matrix(cbind(PC_only_contemp$PC1,PC_only_contemp$PC3))
+
+# Do procrustes analysis.
+
+p_a_lp_al <-procrustes(PC_a_lp_al_matrix,PC_only_contemp_matrix,translation=TRUE,dilation=TRUE)
+p_a_lp_ca <-procrustes(PC_a_lp_ca_matrix,PC_only_contemp_matrix,translation=TRUE,dilation=TRUE)
+p_a_lp_sm <-procrustes(PC_a_lp_sm_matrix,PC_only_contemp_matrix,translation=TRUE,dilation=TRUE)
+
+
+# Get the average of the transformed coordinates
+coordinates_x <- cbind (p_a_lp_al$X.new[,1], p_a_lp_ca$X.new[,1], p_a_lp_sm$X.new[,1]) %>% as.data.frame () %>% mutate(PC1=(V1+V2+V3)/3) %>% dplyr::select (PC1)
+coordinates_y <- cbind (p_a_lp_al$X.new[,2], p_a_lp_ca$X.new[,2], p_a_lp_sm$X.new[,2]) %>% as.data.frame () %>% mutate(PC3=(V1+V2+V3)/3) %>% dplyr::select (PC3)
+PC_avg <- cbind(coordinates_x, coordinates_y) %>% cbind (., dplyr::select(PC_only_contemp,Pop, Ind, Populations, color))
+
+  
+# Join ancient data
+PC_a_lp_al_matrix_ancient <- PC_a_lp_al%>%filter(Pop=="a_lp_al") %>% dplyr::select (PC1,PC3, Pop, Ind, Populations, color)
+PC_a_lp_ca_matrix_ancient <- PC_a_lp_ca%>%filter(Pop=="a_lp_ca") %>% dplyr::select (PC1,PC3, Pop, Ind, Populations, color)
+PC_a_lp_sm_matrix_ancient <- PC_a_lp_sm%>%filter(Pop=="a_lp_sm") %>% dplyr::select (PC1,PC3, Pop, Ind, Populations, color)
+  
+# Cbind with all the infor for the plot.
+
+PCA_procrustes <- rbind (PC_avg, PC_a_lp_al_matrix_ancient, PC_a_lp_ca_matrix_ancient, PC_a_lp_sm_matrix_ancient)
+
+```
+
+### Plot 
+
+```{r}
+pop="a_lp_ib-c_lp_sm-c_lp_do_n033"
+comp <- c(1,3)
+
+title <- paste("PC",comp[1]," (",signif(eig_only_contemp$val[comp[1]], digits=3)*100,"%)"," / PC",comp[2]," (",signif(eig_only_contemp$val[comp[2]], digits=3)*100,"%)",sep="",collapse="")
+
+x_axis = paste("PC",comp[1],sep="")
+y_axis = paste("PC",comp[2],sep="")
+
+ggplot() + 
+geom_point(data=PCA_procrustes, aes_string(x=x_axis, y=y_axis, color="Populations"), size = 5) + 
+scale_colour_manual(values = cols) + ggtitle(title) + theme_classic() + theme(legend.position = "none")
+ggsave(paste(WORKING_DIR,pop, "_pca_procrustes_PC1_PC3.pdf", sep=""),width=80, height=80, units="mm")
+ 
+```
