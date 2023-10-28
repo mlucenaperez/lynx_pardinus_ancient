@@ -1,0 +1,236 @@
+# Calculating average pop diversity after running ANGSD
+# María Lucena Pérez
+
+After using ANGSD to calculate diversity along the genome (window based): diversity per site, plot in R.   
+
+# Join files 
+Here, you calculate diversity per site (since the program returns it by windows), and join all files of the same population (different iterations) based on scaffold_center of the window.
+```{bash}
+# Variables definition
+WINDOW_SIZE=50000
+STEP_SIZE=10000
+  
+#Select one:
+Popname=c_lp_sm_n003
+Popname=c_lp_do_n003
+
+#Select one:
+sites_considered=TsTv
+sites_considered=noTS
+
+  
+LANG=en_EN join -1 1 -2 1 \
+<(tail -n +2 "${Popname}".iteration1."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG | grep -v "nan" | awk -v OFS="\t" '{print $2"_"$3, $4/$14, $5/$14, $14}' | LANG=en_EN sort -k 1,1 ) \
+<(tail -n +2 "${Popname}".iteration2."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG | grep -v "nan" | awk -v OFS="\t" '{print $2"_"$3, $4/$14, $5/$14, $14}' | LANG=en_EN sort -k 1,1 ) | \
+awk -v OFS="\t" '{print $1, ($2+$5)/2, ($3+$6)/2, ($4+$7)/2}' | \
+LANG=en_EN join -1 1 -2 1  - \
+<(tail -n +2 "${Popname}".iteration3."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG | grep -v "nan" | awk -v OFS="\t" '{print $2"_"$3, $4/$14, $5/$14, $14}' | LANG=en_EN sort -k 1,1 ) | \
+awk -v OFS="\t" '{print $1, ($2+$5)/2, ($3+$6)/2, ($4+$7)/2}' | \
+LANG=en_EN join -1 1 -2 1  - \
+<(tail -n +2 "${Popname}".iteration4."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG | grep -v "nan" | awk -v OFS="\t" '{print $2"_"$3, $4/$14, $5/$14, $14}' | LANG=en_EN sort -k 1,1 ) | \
+awk -v OFS="\t" '{print $1, ($2+$5)/2, ($3+$6)/2, ($4+$7)/2}' | \
+LANG=en_EN join -1 1 -2 1  - \
+<(tail -n +2 "${Popname}".iteration5."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG | grep -v "nan" | awk -v OFS="\t" '{print $2"_"$3, $4/$14, $5/$14, $14}' | LANG=en_EN sort -k 1,1 ) | \
+awk -v OFS="\t" '{print $1, ($2+$5)/2, ($3+$6)/2, ($4+$7)/2}'  > "${Popname}".iteration1TO5."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG
+
+
+echo -e 'Chr_WinCenter\ttW_per_site\ttP_per_site\tnSites' > header.rm 
+cat header.rm "${Popname}".iteration1TO5."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG > "${Popname}".iteration1TO5."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG1
+mv "${Popname}".iteration1TO5."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG1 "${Popname}".iteration1TO5."${sites_considered}".unfolded-lr.postprob.thetasWindow_"${WINDOW_SIZE}"."${STEP_SIZE}".gz.pestPG
+rm header.rm 
+```
+
+# R analysis 
+
+## Inter-iteration variability
+Plot different iterations diversity (contemporary populations) + ancient population diversity: comparison of genome-wide diversity level among pops.
+
+## Load library 
+
+```{r}
+library (data.table)
+library(ggplot2)
+library (dplyr)
+library (magrittr)
+library(plyr)
+library (tidyr)
+library(viridis)
+library(boot)
+library(broom)
+library (stringr)
+```
+## Generate dataframe
+```{r}
+wd_input <- INTRODUCE YOUR WORKING DIRECTORY
+# Select one:
+sites_considered="_noTS_"
+sites_considered="_TSTV_"
+
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+sample.wtd.mean <- function(x, w, d) {
+    return(weighted.mean(x = x[d], w = w[d], na.rm=T ))}
+
+# list files
+sample_files <- list.files(wd_input, pattern="*.gz.pestPG")
+
+#read the files from the list
+list_files <- lapply( sample_files, function (x) fread(paste0(wd_input,x)))
+names(list_files) <- basename( sample_files )
+# bind the rows from the list together, putting filenames into the colum "id"
+diversity_all_pops <- rbindlist( list_files, idcol = "pop1" ) %>% 
+  # Chop string 
+  mutate(pop=substr(.$pop1, 1, 12) ) %>% 
+  mutate (POPULATION=ifelse (pop=="a_lp_ib_n003", "Ancient", 
+                             ifelse (pop=="c_lp_sm_n019", "Andujar", 
+                             ifelse (pop=="c_lp_sm_n003", "Andujar",
+                             ifelse (pop=="c_lp_do_n012", "Doñana",
+                             ifelse (pop=="c_lp_do_n003", "Doñana", NA)))))) %>%
+  mutate (iteration_pre =
+            ifelse (POPULATION == "Ancient", "all_data",
+                   substr(.$pop1, 14, 23))) %>% 
+  mutate (ITERATION = 
+            ifelse (iteration_pre == "all_data", "All",
+            ifelse (iteration_pre == "iteration1", "Iter1",
+            ifelse (iteration_pre == "iteration2", "Iter2",
+            ifelse (iteration_pre == "iteration3", "Iter3",
+            ifelse (iteration_pre == "iteration4", "Iter4",
+            ifelse (iteration_pre == "iteration5", "Iter5", NA))))))) %>% 
+  mutate (transitions_vs_tranversion = 
+            ifelse (POPULATION=="Ancient", substr(.$pop1, 14, 17),
+            ifelse (iteration_pre == "iteration1", substr(.$pop1, 26, 29),
+            substr(.$pop1, 25, 28)))) %>%
+  dplyr::select(., -iteration_pre) 
+
+# Site distribution
+
+ggplot (diversity_all_pops, aes(nSites))+
+  geom_density()+
+  theme_minimal()+
+  facet_wrap (~POPULATION)
+  ggsave (paste0(wd, "density_all_pops_nSites",sites_considered,".pdf"))
+  
+# Filtering windows >1000 sites
+  
+diversity_all_pops_filtered <- diversity_all_pops %>% 
+  filter (nSites>1000) %>% 
+  mutate (tW_per_site=tW/nSites) %>%  
+  mutate (tP_per_site=tP/nSites)
+
+
+# Calculate stats
+
+stats_diversity_all_pops_filtered <- diversity_all_pops_filtered %>% dplyr::group_by(pop, POPULATION, ITERATION, transitions_vs_tranversion) %>%
+             dplyr::summarise(
+  wmean_tW=weighted.mean(tW_per_site,w=nSites),
+  wmean_tP=weighted.mean(tP_per_site,w=nSites),
+  se_wmean_watterson_boot = sd(boot(tW_per_site, sample.wtd.mean, R = 10, w=(as.numeric(nSites) + as.numeric(nSites)))$t),
+  se_wmean_pairwise_boot = sd(boot(tP_per_site, sample.wtd.mean, R = 10, w=(as.numeric(nSites) + as.numeric(nSites)))$t))  
+
+write.table(stats_diversity_all_pops_filtered, paste0(wd, "stats_all_pops",sites_considered,".txt"), row.names = F, quote = F)
+
+neutrality_test <- diversity_all_pops_filtered %>% dplyr::group_by(pop, POPULATION, ITERATION, transitions_vs_tranversion) %>%
+             dplyr::summarise(
+  wmean_tajima=weighted.mean(Tajima,w=nSites))
+write.table(neutrality_test, paste0(wd, "neutrality_test",sites_considered,".txt"), row.names = F, quote = F)
+```
+
+## Load generated data
+```{r}
+stats_diversity <- read.table(paste0(wd, "stats_all_pops",sites_considered,".txt"), header = T) %>% 
+  mutate (POP_ITERATION = paste0 (POPULATION, "_", ITERATION))
+stats_neutraly <- read.table(paste0(wd, "neutrality_test",sites_considered,".txt"), header = T) %>% 
+  mutate (POP_ITERATION = paste0 (POPULATION, "_", ITERATION))
+# In one column
+stats_diversity1 <- stats_diversity %>% 
+  mutate ( diversity = "diversity" ) 
+```
+
+## Plot data
+```{r}
+# Plot weighted mean
+ggplot() + 
+  geom_point (data=stats_diversity, 
+              aes(x=POP_ITERATION, y=wmean_tW)) +
+  geom_segment (data=stats_diversity, 
+                aes(x = POP_ITERATION, xend=POP_ITERATION, y = wmean_tW-se_wmean_watterson_boot, yend = wmean_tW+se_wmean_watterson_boot)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  ggsave(paste(wd,"weighted_mean_diversity_watterson",sites_considered,".pdf",sep=""))
+
+ggplot() + 
+  geom_point (data=stats_diversity, 
+              aes(x=POP_ITERATION, y=wmean_tP)) +
+  geom_segment (data=stats_diversity, 
+                aes(x = POP_ITERATION, xend=POP_ITERATION, y = wmean_tP-se_wmean_pairwise_boot, yend = wmean_tP+se_wmean_pairwise_boot)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  ggsave(paste(wd,"weighted_mean_diversity_pairwise",sites_considered,".pdf",sep=""))
+  
+  
+# ONE COLUMN:
+  
+ggplot() + 
+  geom_point (data=stats_diversity1, 
+              aes(x=diversity, y=wmean_tW, colour=POPULATION,  size=2)) +
+  geom_segment (data=stats_diversity1, 
+                aes(x = diversity, xend=diversity, y = wmean_tW-se_wmean_watterson_boot, yend = wmean_tW+se_wmean_watterson_boot)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = TRUE)) +
+  ggsave(paste(wd,"weighted_mean_diversity_watterson_one_column",sites_considered,".pdf",sep=""))
+  
+  
+ggplot() + 
+  geom_point (data=stats_diversity1, 
+              aes(x=diversity, y=wmean_tP, colour=POPULATION,  size=2)) +
+  geom_segment (data=stats_diversity1, 
+                aes(x = diversity, xend=diversity, y = wmean_tP-se_wmean_pairwise_boot, yend = wmean_tP+se_wmean_pairwise_boot)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_y_continuous(labels = function(x) format(x, scientific = TRUE)) +
+  ggsave(paste(wd,"weighted_mean_diversity_pairwise_one_column",sites_considered,".pdf",sep=""))
+
+```
+
+## Summarise iteration information 
+
+```{r}
+stats_summarise_by_iteration <- stats_diversity %>% dplyr::group_by(pop, POPULATION, transitions_vs_tranversion) %>%
+             dplyr::summarise(
+  iterations_wmean_tW=mean(wmean_tW),
+  iterations_wmean_tP=mean(wmean_tP),
+  iterations_se_wmean_tW = sd(wmean_tW),
+  iterations_se_wmean_tP = sd(wmean_tP)) %>% 
+  mutate (type_of_data_pop=paste0(POPULATION, "_", transitions_vs_tranversion)) 
+
+```
+
+## Plot
+
+```{r}
+ggplot() + 
+  geom_point (data=stats_summarise_by_iteration, 
+              aes(x=type_of_data_pop, y=iterations_wmean_tW)) +
+  geom_segment (data=stats_summarise_by_iteration, 
+                aes(x = type_of_data_pop, xend=type_of_data_pop, y = iterations_wmean_tW-iterations_se_wmean_tW, yend = iterations_wmean_tW+iterations_se_wmean_tW)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggsave(paste(wd,"weighted_mean_diversity_watterson_summarise_iterations",sites_considered,".pdf",sep=""), width = 4, height = 4)
+
+ggplot() +
+ geom_point (data=stats_summarise_by_iteration,
+             aes(x=type_of_data_pop, y=iterations_wmean_tP)) +
+ geom_segment (data=stats_summarise_by_iteration,
+               aes(x = type_of_data_pop, xend=type_of_data_pop, y = iterations_wmean_tP-iterations_se_wmean_tP, yend = iterations_wmean_tP+iterations_se_wmean_tP)) +
+ theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+ theme_minimal() +
+ theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+ ggsave(paste(wd,"weighted_mean_diversity_pairwise_summarise_iterations",sites_considered,".pdf",sep=""), width = 4, height = 4)
+```
