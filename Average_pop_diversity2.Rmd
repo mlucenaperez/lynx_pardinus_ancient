@@ -1,0 +1,324 @@
+# Among populations variability of annotated diversity
+Analyze windows that present a greater increase in diversity in contemporary populations vs ancient and check annotation (CDS)
+
+## Load library 
+
+```{r}
+library (data.table)
+library(ggplot2)
+library (dplyr)
+library (magrittr)
+library(plyr)
+library (tidyr)
+library(viridis)
+library(boot)
+library(broom)
+library (stringr)
+theme_set(theme_minimal())
+
+wd <- "/Users/marialucenaperez/Owncloud/publico/PhD/WG_lynx_pardinus_ancient_historical_data/diversity_admixture/diversity_windows/TSTV/window_annotation/"
+
+```
+
+## Load annotation
+
+```{r}
+wd_input <- "/Users/marialucenaperez/Documents/WG_lynx_ancient_data/diversity_windows/TSTV/"
+wd_input_annotation <- "/Users/marialucenaperez/Documents/WG_lynx_ancient_data/diversity_windows/"
+
+window_annotation <- fread(paste0(wd_input_annotation,"annotation/window_coordinates.50000.10000.annotated.features_and_bases_per_windows.reshaped.bed"), na.strings=getOption("datatable.na.strings","NA")) %>%
+  mutate (Pos_center=(Pos_window_start + Pos_window_end)/2) %>% 
+  mutate (Chr_WinCenter=paste0(Scaffold,"_",Pos_center)) %>% 
+  mutate (CDS_percentage=(CDS/50000)*100) %>% 
+  dplyr::select (Chr_WinCenter, CDS, CDS_percentage) 
+
+window_annotation[is.na(window_annotation)] <- 0
+
+```
+
+Output in the pestPG file are the sum of the per site estimates for a region
+
+## Generate dataframe
+
+```{r}
+
+sample.wtd.mean <- function(x, w, d) {
+    return(weighted.mean(x = x[d], w = w[d], na.rm=T ))}
+
+a_lp_ib_n003_diversity_not_filtered <- fread(paste0(wd_input,"a_lp_ib_n003.TsTv.unfolded-lr.postprob.thetasWindow_50000.10000.gz.pestPG")) %>% 
+  mutate (POPULATION="Ancient") %>% mutate (pop="a_lp_ib_n003") %>% 
+  mutate(Chr_WinCenter=paste0(Chr, "_", WinCenter)) %>% 
+  mutate(tW_per_site=tW/nSites) %>% 
+  mutate (tP_per_site=tP/nSites) %>% 
+  dplyr::select (-1, -tW, -tP, -tF, -tH, -tL, -Tajima, -fuf, -fud, -fayh, -zeng, -Chr, -WinCenter) %>% 
+  filter (nSites>1000)
+
+c_lp_sm_n003_diversity_not_filtered <-  fread(paste0(wd_input,"summary_iterations/c_lp_sm_n003.iteration5TO10.TsTv.unfolded-lr.postprob.thetasWindow_50000.10000.gz.pestPG")) %>% 
+  mutate (POPULATION="Andujar") %>% 
+  mutate (pop="c_lp_sm_n003") %>% 
+  filter (nSites>1000)
+
+c_lp_do_n003_diversity_not_filtered <-  fread(paste0(wd_input,"summary_iterations/c_lp_do_n003.iteration5TO10.TsTv.unfolded-lr.postprob.thetasWindow_50000.10000.gz.pestPG")) %>% 
+  mutate (POPULATION="Doñana") %>% 
+  mutate (pop="c_lp_do_n003") %>% 
+  filter (nSites>1000)
+
+# Comparación de las poblaciones
+create_data_diversity_bootleneck_vs_non_bootleneck <- function(POP1, POP2, name_POP1, name_POP2){
+    POPULATION1=POP1 %>% dplyr::select(pop) %>% mutate(pop=as.character(pop)) %>% .[1,1] 
+    POPULATION2=POP2 %>% dplyr::select(pop) %>% mutate(pop=as.character(pop)) %>% .[1,1] 
+  data_diversity_POP1_POP2 <- dplyr::inner_join (POP1, POP2, by = c("Chr_WinCenter")) %>%  
+    # Calculo el delta 
+    dplyr::mutate (delta_pairwise_per_site = (as.numeric(tW_per_site.x)-as.numeric(tW_per_site.y))) %>%
+    dplyr::mutate (delta_watterson_per_site = (as.numeric(tP_per_site.x)-as.numeric(tP_per_site.y))) %>% 
+    # Add comparison title  
+    dplyr::mutate(comparison=paste(POPULATION1, "-", POPULATION2, sep=""))
+  dataframename <- paste (POPULATION1, POPULATION2, sep="_")
+  assign (dataframename, data_diversity_POP1_POP2,.GlobalEnv)
+}
+
+# Create data frame
+# Dataframe Ancient-Andujar
+create_data_diversity_bootleneck_vs_non_bootleneck(a_lp_ib_n003_diversity_not_filtered, c_lp_sm_n003_diversity_not_filtered, deparse(substitute(a_lp_ib_n003_diversity_not_filtered)),deparse(substitute(c_lp_sm_n003_diversity_not_filtered)))
+# Dataframe Ancient-Doñana
+create_data_diversity_bootleneck_vs_non_bootleneck(a_lp_ib_n003_diversity_not_filtered, c_lp_do_n003_diversity_not_filtered, deparse(substitute(a_lp_ib_n003_diversity_not_filtered)),deparse(substitute(c_lp_do_n003_diversity_not_filtered)))
+
+```
+
+## Assign empirical p-value
+```{r}
+length_a_lp_ib_n003_c_lp_sm_n003 <- nrow(a_lp_ib_n003_c_lp_sm_n003) 
+length_a_lp_ib_n003_c_lp_do_n003 <- nrow(a_lp_ib_n003_c_lp_do_n003) 
+
+a_lp_ib_n003_c_lp_sm_n003_ranked <- a_lp_ib_n003_c_lp_sm_n003 %>% 
+  # con esto lo que estoy haciendo es asignarles un ranking
+  dplyr::mutate(rank_delta_watterson_per_site=rank(delta_watterson_per_site, ties.method="min")) %>% 
+  dplyr::mutate(rank_delta_pairwise_per_site=rank(delta_pairwise_per_site, ties.method="min")) %>% 
+  # Ahora lo voy a dividir por las ventanas para cada población, para que tenga un p-value empirico
+  dplyr::mutate (p_value_delta_watterson_per_site=(rank_delta_watterson_per_site/length_a_lp_ib_n003_c_lp_sm_n003)) %>% 
+  dplyr::mutate (p_value_delta_pairwise_per_site=(rank_delta_pairwise_per_site/length_a_lp_ib_n003_c_lp_sm_n003)) %>% 
+  dplyr::select (-rank_delta_watterson_per_site, -rank_delta_pairwise_per_site)
+
+a_lp_ib_n003_c_lp_do_n003_ranked <- a_lp_ib_n003_c_lp_do_n003 %>% 
+  # con esto lo que estoy haciendo es asignarles un ranking
+  dplyr::mutate(rank_delta_watterson_per_site=rank(delta_watterson_per_site, ties.method="min")) %>% 
+  dplyr::mutate(rank_delta_pairwise_per_site=rank(delta_pairwise_per_site, ties.method="min")) %>% 
+  # Ahora lo voy a dividir por las ventanas para cada población, para que tenga un p-value empirico
+  dplyr::mutate (p_value_delta_watterson_per_site=(rank_delta_watterson_per_site/length_a_lp_ib_n003_c_lp_do_n003)) %>% 
+  dplyr::mutate (p_value_delta_pairwise_per_site=(rank_delta_pairwise_per_site/length_a_lp_ib_n003_c_lp_do_n003)) %>% 
+  dplyr::select (-rank_delta_watterson_per_site, -rank_delta_pairwise_per_site)
+
+```
+
+## Determine outliers
+
+```{r}
+# Calculate stats to filter
+stats_a_lp_ib_n003_c_lp_sm_n003_ranked <- a_lp_ib_n003_c_lp_sm_n003_ranked %>%
+  dplyr::group_by(comparison) %>% 
+  dplyr::summarise(
+  mean_delta_tW = mean(delta_watterson_per_site),
+  mean_delta_tP = mean(delta_pairwise_per_site),
+  sd_delta_tW = sd(delta_watterson_per_site),
+  sd_delta_tP = sd(delta_pairwise_per_site)) %>% 
+  mutate(cut_off_tW_soft=abs(mean_delta_tW-(2*sd_delta_tW))) %>% 
+  mutate(cut_off_tP_soft=abs(mean_delta_tP-(2*sd_delta_tP))) %>% 
+  mutate(cut_off_tW_hard=abs(mean_delta_tW-(5*sd_delta_tW))) %>% 
+  mutate(cut_off_tP_hard=abs(mean_delta_tP-(5*sd_delta_tP)))
+
+stats_a_lp_ib_n003_c_lp_do_n003_ranked <- a_lp_ib_n003_c_lp_do_n003_ranked %>%
+  dplyr::group_by(comparison) %>% 
+  dplyr::summarise(
+  mean_delta_tW = mean(delta_watterson_per_site),
+  mean_delta_tP = mean(delta_pairwise_per_site),
+  sd_delta_tW = sd(delta_watterson_per_site),
+  sd_delta_tP = sd(delta_pairwise_per_site)) %>% 
+  mutate(cut_off_tW_soft=abs(mean_delta_tW-(2*sd_delta_tW))) %>% 
+  mutate(cut_off_tP_soft=abs(mean_delta_tP-(2*sd_delta_tP))) %>% 
+  mutate(cut_off_tW_hard=abs(mean_delta_tW-(5*sd_delta_tW))) %>% 
+  mutate(cut_off_tP_hard=abs(mean_delta_tP-(5*sd_delta_tP)))
+
+# Now I categorize my windows 
+a_lp_ib_n003_c_lp_sm_n003_ranked_categorized <- a_lp_ib_n003_c_lp_sm_n003_ranked %>% 
+    dplyr::mutate(outlier_watterson=
+          ifelse(as.numeric(delta_watterson_per_site) < 0 & as.numeric(delta_watterson_per_site) < -(stats_a_lp_ib_n003_c_lp_sm_n003_ranked$cut_off_tW_soft), "outlier", "no")) %>% 
+    dplyr::mutate(outlier_pairwise=
+          ifelse(as.numeric(delta_pairwise_per_site) < 0 & as.numeric(delta_pairwise_per_site) < -(stats_a_lp_ib_n003_c_lp_sm_n003_ranked$cut_off_tP_soft), "outlier", "no")) %>% 
+    dplyr::mutate(outlier_watterson_extreme=
+          ifelse(as.numeric(delta_watterson_per_site) < 0 & as.numeric(delta_watterson_per_site) < -(stats_a_lp_ib_n003_c_lp_sm_n003_ranked$cut_off_tW_hard), "outlier", "no")) %>% 
+    dplyr::mutate(outlier_pairwise_extreme=
+          ifelse(as.numeric(delta_pairwise_per_site) < 0 & as.numeric(delta_pairwise_per_site) < -(stats_a_lp_ib_n003_c_lp_sm_n003_ranked$cut_off_tP_hard), "outlier", "no"))  
+
+
+a_lp_ib_n003_c_lp_do_n003_ranked_categorized <- a_lp_ib_n003_c_lp_do_n003_ranked %>% 
+  dplyr::mutate(outlier_watterson=
+        ifelse(as.numeric(delta_watterson_per_site) < 0 & as.numeric(delta_watterson_per_site) < -(stats_a_lp_ib_n003_c_lp_do_n003_ranked$cut_off_tW_soft), "outlier", "no")) %>% 
+    dplyr::mutate(outlier_pairwise=
+          ifelse(as.numeric(delta_pairwise_per_site) < 0 & as.numeric(delta_pairwise_per_site) < -(stats_a_lp_ib_n003_c_lp_do_n003_ranked$cut_off_tP_soft), "outlier", "no")) %>% 
+    dplyr::mutate(outlier_watterson_extreme=
+          ifelse(as.numeric(delta_watterson_per_site) < 0 & as.numeric(delta_watterson_per_site) < -(stats_a_lp_ib_n003_c_lp_sm_n003_ranked$cut_off_tW_hard), "outlier", "no")) %>% 
+    dplyr::mutate(outlier_pairwise_extreme=
+          ifelse(as.numeric(delta_pairwise_per_site) < 0 & as.numeric(delta_pairwise_per_site) < -(stats_a_lp_ib_n003_c_lp_sm_n003_ranked$cut_off_tP_hard), "outlier", "no"))
+
+```
+
+## Outlier counts
+
+```{r}
+# How many outliers do I have?
+nrow(a_lp_ib_n003_c_lp_sm_n003_ranked_categorized)
+# 214570
+# 21471? (2020/08/03)
+# 214569 (2020/08/19)
+nrow(a_lp_ib_n003_c_lp_sm_n003_ranked_categorized %>% filter(outlier_watterson=="outlier"))
+# 7829 --> 2*sd
+# 7828 (2020/08/03)
+# 7621 (2020/08/19)
+nrow(a_lp_ib_n003_c_lp_sm_n003_ranked_categorized %>% filter((outlier_watterson_extreme)=="outlier"))
+# 826 --> 5*sd
+# 756 (2020/08/03)
+# 737 (2020/08/19)
+nrow(a_lp_ib_n003_c_lp_do_n003_ranked_categorized)
+# 214565
+# 214561 (2020/08/03)
+# 214559 (2020/08/19)
+nrow(a_lp_ib_n003_c_lp_do_n003_ranked_categorized %>% filter(outlier_watterson=="outlier"))
+# 6500 --> 2*sd
+# 6444 (2020/08/03)
+# 6115 (2020/08/19)
+nrow(a_lp_ib_n003_c_lp_do_n003_ranked_categorized %>% filter(outlier_watterson_extreme=="outlier"))
+# 449 --> 5*sd
+# 384 (2020/08/03)
+# 384 (2020/08/19)
+```
+
+## Join dataframes
+
+```{r}
+# Ahora uno ambos datasets 
+a_lp_ib_n003_vs_contemporary_pops_ranked_categorized <- rbind(a_lp_ib_n003_c_lp_sm_n003_ranked_categorized, a_lp_ib_n003_c_lp_do_n003_ranked_categorized)
+```
+
+## Calculate stats
+```{r}
+stats_comparison_a_lp_ib_n003_vs_contemporary_pops <- a_lp_ib_n003_vs_contemporary_pops_ranked_categorized %>%
+  mutate(nSites_ave=(nSites.x+nSites.y)/2) %>% 
+  dplyr::group_by(comparison) %>% 
+  dplyr::summarise(
+  wmean_delta_tW=weighted.mean(delta_watterson_per_site,w=nSites_ave),
+  wmean_delta_tP=weighted.mean(delta_pairwise_per_site,w=nSites_ave),
+  se_wmean_delta_tW = sd(boot(wmean_delta_tW, sample.wtd.mean, R = 10, w=(as.numeric(nSites_ave) + as.numeric(nSites_ave)))$t),
+  se_wmean_delta_tP = sd(boot(wmean_delta_tP, sample.wtd.mean, R = 10, w=(as.numeric(nSites_ave) + as.numeric(nSites_ave)))$t))  
+
+write.table(stats_comparison_a_lp_ib_n003_vs_contemporary_pops, paste0(wd, "stats_comparison_a_lp_ib_n003_vs_contemporary_pops.txt"), row.names = F, quote = F)
+```
+
+## *Plot histogram
+```{r}
+# Histogram
+ggplot(data=a_lp_ib_n003_vs_contemporary_pops_ranked_categorized , 
+              aes(x=delta_watterson_per_site, fill=outlier_watterson)) + 
+  geom_histogram (bins = 300) +
+  facet_wrap(~comparison) +
+  theme_minimal() +
+  ggsave(paste(wd,"histogram_delta_watterson_per_site.pdf",sep=""))
+
+ggplot(data=a_lp_ib_n003_vs_contemporary_pops_ranked_categorized , 
+              aes(x=delta_watterson_per_site, fill=outlier_watterson_extreme)) + 
+  geom_histogram (bins = 300) +
+  facet_wrap(~comparison) +
+  theme_minimal() +
+  ggsave(paste(wd,"histogram_delta_watterson_per_site_extreme_outliers.pdf",sep=""))
+
+
+ggplot(data=a_lp_ib_n003_vs_contemporary_pops_ranked_categorized, 
+              aes(x=delta_pairwise_per_site, fill=outlier_pairwise)) + 
+  geom_histogram (bins = 300) +
+  facet_wrap(~comparison) +
+   theme_minimal() 
+  ggsave(paste(wd,"histogram_delta_pairwise_per_site.pdf",sep=""))
+
+ggplot(data=a_lp_ib_n003_vs_contemporary_pops_ranked_categorized, 
+              aes(x=delta_pairwise_per_site, fill=outlier_pairwise_extreme)) + 
+  geom_histogram (bins = 300) +
+  facet_wrap(~comparison) +
+   theme_minimal() 
+  ggsave(paste(wd,"histogram_delta_pairwise_per_site_extreme_outliers.pdf",sep=""))
+
+```
+
+## Annotation
+
+Now we annotate to test the number
+```{r}
+a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated <- full_join(a_lp_ib_n003_vs_contemporary_pops_ranked_categorized, window_annotation, by="Chr_WinCenter") %>% dplyr::filter(!is.na(comparison)) # con esto elimino las ventanas que no tengo información de diversidad. 
+```
+
+# Summary
+
+```{r}
+# Outliers 2*sd
+stats_outliers_watterson <- a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated %>% 
+  dplyr::group_by(outlier_watterson, comparison) %>% 
+  dplyr::summarise(
+    CDS_percentage=mean(CDS_percentage, na.rm = TRUE))
+
+stats_outliers_pairwise <- a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated %>% 
+  dplyr::group_by(outlier_pairwise, comparison) %>% 
+  dplyr::summarise(
+    CDS_percentage=mean(CDS_percentage, na.rm = TRUE))
+
+# Outliers 5*sd
+stats_outliers_watterson_extreme <- a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated %>% 
+  dplyr::group_by(outlier_watterson_extreme, comparison) %>% 
+  dplyr::summarise(
+    CDS_percentage=mean(CDS_percentage, na.rm = TRUE))
+
+stats_outliers_pairwise_extreme <- a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated %>% 
+  dplyr::group_by(outlier_pairwise_extreme, comparison) %>% 
+  dplyr::summarise(
+    CDS_percentage=mean(CDS_percentage, na.rm = TRUE))
+
+```
+
+# *Plot CDS percentage
+
+```{r}
+ggplot(a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated, aes(outlier_watterson, CDS_percentage)) +
+  geom_boxplot() +
+  stat_summary(fun.y=mean, geom="point", shape=23, size=2) +
+  facet_wrap(~comparison) +
+  ggsave(paste(wd,"boxplot_CDS_percentage_outliers_vs_nooutliers_watterson.pdf",sep=""))
+
+ggplot(a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated, aes(outlier_watterson_extreme, CDS_percentage)) +
+  geom_boxplot() +
+  stat_summary(fun.y=mean, geom="point", shape=23, size=2) +
+  facet_wrap(~comparison) +
+  ggsave(paste(wd,"boxplot_CDS_percentage_outliers_vs_nooutliers_extreme_watterson.pdf",sep=""))
+
+
+ggplot(a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated, aes(outlier_pairwise, CDS_percentage)) +
+  geom_boxplot() +
+  stat_summary(fun.y=mean, geom="point", shape=23, size=2) +
+  facet_wrap(~comparison) +
+  ggsave(paste(wd,"boxplot_CDS_percentage_outliers_vs_nooutliers_pairwise.pdf",sep=""))
+
+ggplot(a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated, aes(outlier_pairwise_extreme, CDS_percentage)) +
+  geom_boxplot() +
+  stat_summary(fun.y=mean, geom="point", shape=23, size=2) +
+  facet_wrap(~comparison) +
+  ggsave(paste(wd,"boxplot_CDS_percentage_outliers_vs_nooutliers_extreme_pairwise.pdf",sep=""))
+
+
+
+ggplot(a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated, aes(outlier_watterson, CDS_percentage)) +
+  stat_summary(fun.data = "mean_cl_boot", colour = "black", size = 1) +
+  facet_wrap(~comparison) +
+  ggsave(paste(wd,"bootmean_CDS_percentage_outliers_vs_nooutliers_watterson.pdf",sep=""), width = 4, height = 4)
+
+ggplot(a_lp_ib_n003_vs_contemporary_pops_ranked_categorized_annotated, aes(outlier_watterson_extreme, CDS_percentage)) +
+  stat_summary(fun.data = "mean_cl_boot", colour = "black", size = 1) +
+  facet_wrap(~comparison) +
+  ggsave(paste(wd,"bootmean_CDS_percentage_outliers_vs_nooutliers_extreme_watterson.pdf",sep=""), width = 4, height = 4)
+
+```
